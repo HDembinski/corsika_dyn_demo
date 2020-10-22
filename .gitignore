@@ -1,0 +1,7 @@
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+CMakeFiles
+__pycache__
+*.so
+*.pyc
