@@ -21,7 +21,7 @@ constexpr float km = 1e3 * m;
 constexpr float g = 1e-3 * kg;
 }
 
-using rng_t = std::default_random_engine; // should be switched to PCG
+using rng_t = std::default_random_engine; // should be PCG
 
 constexpr auto kinf = std::numeric_limits<float>::infinity();
 constexpr auto knan = std::numeric_limits<float>::quiet_NaN();
@@ -158,25 +158,23 @@ struct Move : ProcessBase {
 
     virtual void run(Stack&) override {
         for (auto p : ProcessBase::todo_) {
-            if (p->step > 0) {
-                p->x += p->step;
-                if (charge(*p) != 0) {
-                    const float de_dx = 2.127E-03 * u::MeV / u::cm; // Nitrogen 1 atm
-                    const float eloss = de_dx * p->step;
-                    const float m = mass(*p);
-                    const float e = energy(*p);
-                    const float ek = e - m;
-                    if ((ek - eloss) > min_energy_) {
-                        energy_deposit_ += eloss;
-                        p->p = std::sqrt(sqr(e - eloss) - sqr(m));
-                    } else {
-                        energy_deposit_ += ek;
-                        p->p = 0;
-                    }
+            p->x += p->step;
+            if (charge(*p) != 0) {
+                const float de_dx = 2.127E-03 * u::MeV / u::cm; // Nitrogen 1 atm
+                const float eloss = de_dx * p->step;
+                const float m = mass(*p);
+                const float e = energy(*p);
+                const float ek = e - m;
+                if ((ek - eloss) > min_energy_) {
+                    energy_deposit_ += eloss;
+                    p->p = std::sqrt(sqr(e - eloss) - sqr(m));
+                } else {
+                    energy_deposit_ += ek;
+                    p->p = 0;
                 }
-                if (p->x >= obs_level_)
-                    p->step = -1;
             }
+            if (p->x >= obs_level_)
+                p->step = -1;
         }
     }
 };
@@ -283,19 +281,19 @@ struct ProcessList {
   std::vector<std::shared_ptr<ProcessBase>> procs_;
 
   bool run(Stack& s) {
-    // finished particles are at front
-    auto b = s.begin();
-    for (auto e = s.end(); b != e && b->step < 0; ++b);
-    if (b == s.end())
-      return false;
+    // move finished to front
+    auto b = std::remove_if(s.begin(), s.end(), [](StackParticle& p) {
+      return p.step > 0;
+    });
 
+    // only process unfinished range
     StackRange r(b, s.end());
 
     // compute all step sizes
     for (auto&& p : procs_)
         p->step(r);
 
-    for (auto&& p : s) {
+    for (auto&& p : r) {
         // all particles need to be moved; Move is at front
         procs_.front()->handle(p);
         if (p.pidx)
@@ -306,11 +304,6 @@ struct ProcessList {
     // run processes and fill stack with new particles
     for (auto&& p : procs_)
         p->run_and_reset(s);
-
-    // move finished to front
-    std::remove_if(s.begin(), s.end(), [](StackParticle& p) {
-      return p.step > 0;
-    });
 
     // delete particles below energy threshold
     auto end = std::remove_if(s.begin(), s.end(), [](StackParticle& p) {

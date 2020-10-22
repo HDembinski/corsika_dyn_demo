@@ -35,7 +35,7 @@ p = Particle(ParticleId.Photon, 0, 10)
 stack.append(p)
 
 pl = ProcessList()
-m = Move(100, 1e-3, 2e3)
+m = Move(100, 1e-3, 1e3)
 pl.append(m)
 pl.append(Decay(rng))
 pl.append(PairProduction(rng))
@@ -47,6 +47,8 @@ while pl.run(stack):
     print("iteration", n, "energy deposit", m.energy_deposit)
     for p in stack:
         print("  ", p)
+    if n == 15:
+        break
 
 esum = m.energy_deposit
 for p in stack:
