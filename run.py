@@ -47,6 +47,7 @@ while pl.run(stack):
     print("iteration", n, "energy deposit", m.energy_deposit)
     for p in stack:
         print("  ", p)
+
 esum = m.energy_deposit
 for p in stack:
     esum += p.energy

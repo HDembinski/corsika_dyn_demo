@@ -126,6 +126,7 @@ struct ProcessBase {
     todo_t todo_;
     void handle(StackParticle& p) { todo_.push_back(&p); }
 
+    // local SIMD and cache optimizations possible in step and run
     virtual void step(StackRange) = 0;
     virtual void run(Stack&) = 0;
     virtual ~ProcessBase() {}
@@ -149,8 +150,6 @@ struct Move : ProcessBase {
         obs_level_{obsl} {}
 
     virtual void step(StackRange r) override {
-        // optimization opportunity not implemented here:
-        // we can run SIMD code to compute next N particles
         for (auto&& p : r) {
             p.pidx = 0;
             p.step = std::min(max_step_, obs_level_ - p.x) + keps;
@@ -158,8 +157,6 @@ struct Move : ProcessBase {
     };
 
     virtual void run(Stack&) override {
-        // optimization opportunity not implemented here:
-        // we can run SIMD code to compute next N particles
         for (auto p : ProcessBase::todo_) {
             if (p->step > 0) {
                 p->x += p->step;
@@ -201,8 +198,6 @@ struct DecayOrInteraction : ProcessBase {
     }
 
     virtual void step(StackRange r) override {
-        // optimization opportunity not implemented here:
-        // we can run SIMD code that compute next N particles
         for (auto&& p : r) {
             const auto l = sample_length(p);
             if (l < p.step) {
@@ -227,7 +222,7 @@ struct Decay : DecayOrInteraction<Decay> {
     }
 
     virtual void run(Stack& s) override {
-        // convert muon to electron, neutrinos could be append to stack, but we ignore them
+        // convert muon to electron, ignore neutrinos
         for (auto* p : this->todo_) {
             p->pid = ParticleId::Electron;
             // ignored: energy loss through decay
