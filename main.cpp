@@ -122,9 +122,9 @@ struct StackRange {
 struct ProcessBase {
     std::uint8_t pidx_ = 0;
 
-    using todo_t = std::vector<StackParticle*>;
+    using todo_t = std::vector<unsigned>;
     todo_t todo_;
-    void handle(StackParticle& p) { todo_.push_back(&p); }
+    void handle(unsigned pos) { todo_.push_back(pos); }
 
     // local SIMD and cache optimizations possible in step and run
     virtual void step(StackRange) = 0;
@@ -156,25 +156,26 @@ struct Move : ProcessBase {
         }
     };
 
-    virtual void run(Stack&) override {
-        for (auto p : ProcessBase::todo_) {
-            p->x += p->step;
-            if (charge(*p) != 0) {
+    virtual void run(Stack& s) override {
+        for (auto i : ProcessBase::todo_) {
+            auto& p = s[i];
+            p.x += p.step;
+            if (charge(p) != 0) {
                 const float de_dx = 2.127E-03 * u::MeV / u::cm; // Nitrogen 1 atm
-                const float eloss = de_dx * p->step;
-                const float m = mass(*p);
-                const float e = energy(*p);
+                const float eloss = de_dx * p.step;
+                const float m = mass(p);
+                const float e = energy(p);
                 const float ek = e - m;
                 if ((ek - eloss) > min_energy_) {
                     energy_deposit_ += eloss;
-                    p->p = std::sqrt(sqr(e - eloss) - sqr(m));
+                    p.p = std::sqrt(sqr(e - eloss) - sqr(m));
                 } else {
                     energy_deposit_ += ek;
-                    p->p = 0;
+                    p.p = 0;
                 }
             }
-            if (p->x >= obs_level_)
-                p->step = -1;
+            if (p.x >= obs_level_)
+                p.step = -1;
         }
     }
 };
@@ -221,8 +222,9 @@ struct Decay : DecayOrInteraction<Decay> {
 
     virtual void run(Stack& s) override {
         // convert muon to electron, ignore neutrinos
-        for (auto* p : this->todo_) {
-            p->pid = ParticleId::Electron;
+        for (auto i : this->todo_) {
+            auto& p = s[i];
+            p.pid = ParticleId::Electron;
             // ignored: energy loss through decay
         }
     }
@@ -241,13 +243,15 @@ struct PairProduction : DecayOrInteraction<PairProduction> {
     }
 
     virtual void run(Stack& s) override {
-        for (auto* p : this->todo_) {
+        for (auto i : this->todo_) {
+            auto& p = s[i];
+
             // convert photon already on stack to electron
-            p->pid = ParticleId::Electron;
-            p->p = std::sqrt(sqr(p->p) / 4 - sqr(mass(*p)));
+            p.pid = ParticleId::Electron;
+            p.p = std::sqrt(sqr(p.p / 2) - sqr(mass(p)));
 
             // add other electron to stack
-            Particle p2{*p};
+            Particle p2{p};
             p2.pid = ParticleId::Positron;
             s.push_back(p2);
         }
@@ -266,12 +270,18 @@ struct Bremsstrahlung : DecayOrInteraction<Bremsstrahlung> {
     }
 
     virtual void run(Stack& s) override {
-        for (auto* p : this->todo_) {
+        for (auto i : this->todo_) {
+            auto& p = s[i];
             // apply eloss to electron/positron already on stack
-            p->p /= 2;
-            // add photon to stack
-            Particle p2{*p};
+            const float m = mass(p);
+            const float eo = energy(p);
+            const float eloss = (eo - m) / 2;
+            p.p = std::sqrt(sqr(eo - eloss) - sqr(m));
+
+            // add photon to stack, must happen after manipulation of p
+            Particle p2{p};
             p2.pid = ParticleId::Photon;
+            p2.p = eloss;
             s.push_back(p2);
         }
     }
@@ -281,24 +291,30 @@ struct ProcessList {
   std::vector<std::shared_ptr<ProcessBase>> procs_;
 
   bool run(Stack& s) {
-    // move finished to front
+    // move finished particles to front
     auto b = std::remove_if(s.begin(), s.end(), [](StackParticle& p) {
-      return p.step > 0;
+        return p.step >= 0;
     });
+
+    if (b == s.end())
+        return false;
 
     // only process unfinished range
     StackRange r(b, s.end());
+    const auto offset = b - s.begin();
 
     // compute all step sizes
     for (auto&& p : procs_)
         p->step(r);
 
+    unsigned i = 0;
     for (auto&& p : r) {
         // all particles need to be moved; Move is at front
-        procs_.front()->handle(p);
+        procs_.front()->handle(offset + i);
         if (p.pidx)
           // attach particles to process with shortest step size
-          procs_[p.pidx]->handle(p);
+          procs_[p.pidx]->handle(offset + i);
+        ++i;
     }
 
     // run processes and fill stack with new particles
@@ -306,8 +322,8 @@ struct ProcessList {
         p->run_and_reset(s);
 
     // delete particles below energy threshold
-    auto end = std::remove_if(s.begin(), s.end(), [](StackParticle& p) {
-      return p.p == 0;
+    auto end = std::remove_if(s.begin() + offset, s.end(), [](StackParticle& p) {
+        return p.p == 0;
     });
     s.resize(end - s.begin());
 
@@ -364,7 +380,7 @@ PYBIND11_MODULE(corsika, m) {
 
   py::enum_<ParticleId::Kind>(m, "ParticleId")
     .value("Photon", ParticleId::Photon)
-    .value("Eletron", ParticleId::Electron)
+    .value("Electron", ParticleId::Electron)
     .value("Positron", ParticleId::Positron)
     .value("Muon", ParticleId::Muon)
     .value("AntiMuon", ParticleId::AntiMuon)

@@ -30,7 +30,7 @@ rng = RNG(seed)
 
 stack = Stack()
 
-p = Particle(ParticleId.Photon, 0, 10)
+p = Particle(ParticleId.Electron, 0, 10)
 
 stack.append(p)
 
@@ -44,13 +44,10 @@ pl.append(Bremsstrahlung(rng))
 n = 0
 while pl.run(stack):
     n += 1
-    print("iteration", n, "energy deposit", m.energy_deposit)
+    print("iteration", n)
     for p in stack:
         print("  ", p)
-    if n == 15:
-        break
-
-esum = m.energy_deposit
-for p in stack:
-    esum += p.energy
-print(f"energy {esum}")
+    esum = m.energy_deposit
+    for p in stack:
+        esum += p.energy
+    print(f"energy {esum}")
