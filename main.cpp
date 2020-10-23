@@ -31,8 +31,8 @@ struct ParticleId {
     enum Kind {
         Photon = 0,
         Electron = -1,
-        Positron = 1,
         Muon = -2,
+        Positron = 1,
         AntiMuon = 2
     };
     short pid;
@@ -150,10 +150,10 @@ struct Move : ProcessBase {
         obs_level_{obsl} {}
 
     virtual void step(StackRange r) override {
-        for (auto&& p : r) {
+        for (auto&& p : r)
             p.pidx = 0;
+        for (auto&& p : r)
             p.step = std::min(max_step_, obs_level_ - p.x) + keps;
-        }
     };
 
     virtual void run(Stack& s) override {
